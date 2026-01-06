@@ -5,7 +5,8 @@
 > MP4 version: [assets/evolution.mp4](assets/evolution.mp4)
 
 ## Objective
-Train an RL agent to drive as fast as possible in dense traffic **without crashing** (highway-env / highway-v0).
+Train an RL agent to drive as fast as possible in dense traffic 
+ (highway-env / highway-v0).
 
 ## Environment
 - **Library:** highway-env (Gymnasium)
@@ -48,7 +49,7 @@ python -m pip install rich
 
 ### Train
 ```bash
-python -m src.agents.train_ppo
+PYTHONPATH=. python -m src.train
 ```
 
 ### Make Evolution Video (3 stages)

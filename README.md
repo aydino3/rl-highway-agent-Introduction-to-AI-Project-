@@ -1,149 +1,83 @@
-<div align="center">
+RL Highway Agent (PPO) — Speed vs Safety in Dense Traffic
+Header & Visual Proof
+Embedded evolution media (place files in the repo under assets/ and link/embed them in GitHub README):
+• assets/evolution.gif (recommended for automatic display on GitHub)
+• assets/evolution.mp4 (optional)
+Stages shown: Untrained Agent → Half-Trained Agent → Fully Trained Agent
+Objective
+Train a reinforcement learning agent to drive as fast as possible in dense traffic without crashing, using Gymnasium + highway-env and Stable-Baselines3 (PPO).
+Environment
+Gymnasium Env: highway-v0
+Observation (State): kinematics/features of the ego vehicle and nearby vehicles (numeric, not pixels).
+Action Space: discrete high-level actions (lane changes + speed control) provided by highway-env.
+Methodology
+Custom Reward Function (Math)
+A custom reward wrapper shapes behavior toward safe high-speed driving. Let v be ego speed, 1_collision indicate collision, r_lane encourage efficient lane choice, and r_lc penalize excessive lane changes.
+R(s,a) =
+w_speed * clip((v - v_min) / (v_max - v_min), 0, 1)
++ w_right * r_lane
+- w_collision * 1_collision
+- w_lc * r_lc
 
-# Applied Reinforcement Learning — Highway-Env Agent (PPO)
-**Author:** Aydın Özkan
-
-Train an autonomous driving agent in **highway-env** to drive fast in dense traffic **without crashing**.
-
-</div>
-
----
-
-## 🎬 Evolution (3 Stages)
-
-**Untrained → Half-Trained → Fully Trained** (exactly 3 stages, in a single file)
-
-<div align="center">
-
-![Evolution](assets/evolution.gif)
-
-</div>
-
-> If the GIF does not render (first run), generate it with: `./scripts/make_assets.sh`  
-> Optional: the MP4 version is saved as `assets/evolution.mp4`.
-
----
-
-## 📦 Setup
-
-```bash
-python3 -m venv .venv
+Weights and thresholds are defined in src/config.py and applied in src/envs/reward_wrapper.py.
+The Model: PPO
+PPO (Proximal Policy Optimization) was chosen for its stability and strong performance on continuous control-style objectives, while remaining CPU-friendly for a laptop-scale experiment.
+Key Hyperparameters
+Hyperparameters are stored in src/config.py (e.g., total_timesteps, learning_rate, gamma, gae_lambda, clip_range, n_steps, batch_size, n_envs).
+Policy Network
+Policy: MlpPolicy
+Architecture: a 2-layer MLP with separate policy/value heads (see src/agents training script).
+Training Analysis
+Training curve image (place in assets/ and link in README): assets/reward_vs_episodes.png
+Graph Commentary
+Early training is noisy because the agent explores and crashes frequently. With reward shaping and PPO’s clipped updates, the agent learns safer behaviors while maintaining higher speed, which increases the average episode reward and episode length.
+Challenges & Failures
+1) Video Recording / Rendering Pitfalls
+While generating the evolution media, recording could fail if the environment was not initialized with an RGB render mode or if video recording was triggered at the wrong time.
+Fix: use render_mode="rgb_array" and a robust frame capture pipeline; export MP4/GIF into assets/.
+2) Progress Bar Dependencies
+Stable-Baselines3 progress bars require extra packages (rich + tqdm).
+Fix: install rich (tqdm is already a dependency in this repo).
+How to Run
+1) Install
+python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-```
+python -m pip install -r requirements.txt
+python -m pip install rich
 
----
+2) Train
+PYTHONPATH=. python -m src.train
 
-## ✅ Smoke Tests
+3) Generate Evolution Video (MP4 + GIF)
+PYTHONPATH=. python -m src.video.make_evolution_video \
+  --env-id highway-v0 \
+  --mid-model outputs/models/ppo_mid.zip \
+  --final-model outputs/models/ppo_final.zip \
+  --steps 1200 \
+  --make-gif \
+  --out-dir outputs/videos
 
-```bash
-./scripts/smoke.sh
-```
+# Then copy the outputs into assets/
+mkdir -p assets
+cp -f outputs/videos/evolution.mp4 assets/evolution.mp4
+cp -f outputs/videos/evolution.gif assets/evolution.gif
 
----
+4) Plot Reward Curve
+PYTHONPATH=. python -m src.plots.plot_reward_curve \
+  --csv outputs/logs/monitor.csv \
+  --out outputs/plots/reward_vs_episodes.png \
+  --title "Reward vs Episodes"
 
-## 🧠 Environment & Agent
+cp -f outputs/plots/reward_vs_episodes.png assets/reward_vs_episodes.png
 
-### Environment
-- **Env:** `highway-v0` (Gymnasium + highway-env)
-- **Observation:** kinematics-style vector (ego + nearby vehicles)
-- **Action space:** discrete lane-change / speed-control actions
+Repository Structure
+src/
+  agents/        # training scripts (PPO)
+  envs/          # custom reward wrapper
+  plots/         # plotting utilities
+  video/         # evolution video generator
+assets/
+  evolution.gif
+  evolution.mp4
+  reward_vs_episodes.png
 
-### Custom Reward (Wrapper)
-
-Training uses a reward wrapper (`src/envs/reward_wrapper.py`) to make learning more stable.
-
-Reward definition:
-
-$$
-r_t =
-w_{speed}\cdot \frac{v_t}{30}
-\;-\;
-w_{crash}\cdot \mathbb{1}[crashed_t]
-\;+\;
-w_{alive}\cdot 1
-$$
-
-Default weights (as implemented in code):
-- $w_{speed}=1.0$
-- $w_{crash}=5.0$
-- $w_{alive}=0.05$
-
-Intuition:
-- Encourage maintaining higher speed.
-- Penalize collisions strongly.
-- Add a small survival bonus to reduce “freeze” behavior.
-
----
-
-## 🤖 Training Method: PPO
-
-We use **Proximal Policy Optimization (PPO)** from Stable-Baselines3 with an MLP policy.
-
-**Key hyperparameters** (see `src/config.py` + `src/agents/train_ppo.py`):
-- `learning_rate = 3e-4`
-- `gamma = 0.99`
-- `gae_lambda = 0.95`
-- `clip_range = 0.2`
-- `n_steps = 2048` (auto-adjusts for very small runs)
-- `batch_size = 64` (auto-adjusts to divide rollout size)
-
-### Train (recommended)
-
-```bash
-./scripts/train.sh 300000 150000
-```
-
-This writes:
-- `outputs/models/ppo_mid.zip`
-- `outputs/models/ppo_final.zip`
-- logs under `outputs/logs/` (CSV/TensorBoard)
-
----
-
-## 📈 Training Curve
-
-<div align="center">
-
-![Training Curve](assets/training_curve.png)
-
-</div>
-
-### Commentary (how to read it)
-- **Early episodes:** reward is low/unstable while PPO explores and crashes frequently.
-- **Mid training:** reward rises as the agent learns safer lane changes and speed control.
-- **Late training:** the curve tends to plateau once the policy finds a stable balance between speed and safety.
-
----
-
-## 🧩 Challenges & Fixes
-
-**Hurdle:** With very small `total_timesteps`, PPO can look “stuck” because rollout size (`n_envs * n_steps`) is large, so the policy updates rarely.
-
-**Fix:** The training script auto-adjusts:
-- `n_steps` down to fit small runs
-- `batch_size` so that it divides rollout size
-
-See: `src/agents/train_ppo.py` (`_auto_steps`, `_auto_batch`).
-
----
-
-## 🛠️ Build Report Assets (GIF + Plot)
-
-One command to generate everything required for the report:
-
-```bash
-./scripts/make_assets.sh
-```
-
-Outputs:
-- `assets/evolution.gif` (required)
-- `assets/training_curve.png` (required)
-- `assets/evolution.mp4` (optional)
-
----
-
-## 🧼 Repo Hygiene
-
-- `outputs/` contains logs, models, and raw videos and is **gitignored**.
-- Commit only the final report media under `assets/`.

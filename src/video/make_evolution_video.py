@@ -1,97 +1,104 @@
 from __future__ import annotations
 
 import argparse
-import os
+from pathlib import Path
+from typing import Callable, Optional, Tuple
 
 import gymnasium as gym
-import highway_env  # noqa: F401  (register envs)
-from moviepy.editor import VideoFileClip, concatenate_videoclips
+import highway_env  # noqa: F401  # ensure envs are registered
+import imageio
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 from stable_baselines3 import PPO
 
-from src.config import TrainConfig
-from src.envs.reward_wrapper import CustomRewardWrapper
+try:
+    # optional: if you have your wrapper, keep it for consistency
+    from src.envs.reward_wrapper import RewardWrapper  # type: ignore
+except Exception:
+    RewardWrapper = None  # type: ignore
 
 
-def _make_env(env_id: str, seed: int, record_dir: str, name_prefix: str) -> gym.Env:
-    env = gym.make(env_id, render_mode="rgb_array")
-    env = CustomRewardWrapper(env)
+def _title_frame(text: str, size: Tuple[int, int]) -> np.ndarray:
+    w, h = size
+    img = Image.new("RGB", (w, h), (15, 15, 18))
+    draw = ImageDraw.Draw(img)
 
-    os.makedirs(record_dir, exist_ok=True)
-
-    # Record only the first episode (one clip per stage)
-    env = gym.wrappers.RecordVideo(
-        env,
-        video_folder=record_dir,
-        name_prefix=name_prefix,
-        episode_trigger=lambda ep: ep == 0,
-        disable_logger=True,
-    )
-    env.reset(seed=seed)
-    # highway-env recommends registering the RecordVideo wrapper to capture intermediate frames
+    # best-effort font
     try:
-        env.unwrapped.set_record_video_wrapper(env)
+        font = ImageFont.truetype("Arial.ttf", size=max(18, h // 14))
     except Exception:
-        pass
+        font = ImageFont.load_default()
+
+    # center text
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(((w - tw) // 2, (h - th) // 2), text, font=font, fill=(240, 240, 245))
+    return np.array(img)
+
+
+def _make_env(env_id: str, seed: int) -> gym.Env:
+    env = gym.make(env_id, render_mode="rgb_array")
+    if RewardWrapper is not None:
+        env = RewardWrapper(env)
+    env.reset(seed=seed)
     return env
 
 
-def _rollout_random(env: gym.Env, n_steps: int) -> None:
-    obs, info = env.reset()
-    for _ in range(n_steps):
-        action = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(action)
+def _rollout_and_write(
+    writer: imageio.Writer,
+    env_id: str,
+    stage_name: str,
+    steps: int,
+    fps: int,
+    seed: int,
+    policy: Optional[Callable[[np.ndarray], int]] = None,
+    title_seconds: float = 1.0,
+) -> None:
+    env = _make_env(env_id, seed=seed)
+
+    first = env.render()
+    if first is None:
+        raise RuntimeError("env.render() returned None. Try a different env_id or check render_mode.")
+    h, w = first.shape[0], first.shape[1]
+
+    # title card
+    title = _title_frame(stage_name, (w, h))
+    for _ in range(int(fps * title_seconds)):
+        writer.append_data(title)
+
+    obs, _info = env.reset(seed=seed)
+    frame = env.render()
+    if frame is not None:
+        writer.append_data(frame)
+
+    for _t in range(steps):
+        if policy is None:
+            action = env.action_space.sample()
+        else:
+            action = policy(obs)
+
+        obs, _r, terminated, truncated, _info = env.step(action)
+        frame = env.render()
+        if frame is not None:
+            writer.append_data(frame)
+
         if terminated or truncated:
-            obs, info = env.reset()
+            obs, _info = env.reset()
+            frame = env.render()
+            if frame is not None:
+                writer.append_data(frame)
 
-
-def _rollout_model(env: gym.Env, model: PPO, n_steps: int) -> None:
-    obs, info = env.reset()
-    for _ in range(n_steps):
-        action, _ = model.predict(obs, deterministic=True)
-        obs, reward, terminated, truncated, info = env.step(action)
-        if terminated or truncated:
-            obs, info = env.reset()
-
-
-def _pick_latest_mp4(folder: str, prefix: str) -> str:
-    mp4s = [f for f in os.listdir(folder) if f.endswith(".mp4") and f.startswith(prefix)]
-    if not mp4s:
-        # gym may create nested dirs; search recursively
-        found = []
-        for r, _, files in os.walk(folder):
-            for f in files:
-                if f.endswith(".mp4") and f.startswith(prefix):
-                    found.append(os.path.join(r, f))
-        if not found:
-            raise FileNotFoundError(f"No mp4 found under {folder} with prefix {prefix}")
-        return sorted(found)[-1]
-    return os.path.join(folder, sorted(mp4s)[-1])
-
-
-def _concat_three(untrained: str, mid: str, final: str, out_path: str) -> None:
-    clips = [VideoFileClip(untrained), VideoFileClip(mid), VideoFileClip(final)]
-    final_clip = concatenate_videoclips(clips, method="compose")
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    final_clip.write_videofile(out_path, audio=False, verbose=False, logger=None)
-    for c in clips:
-        c.close()
-    final_clip.close()
-
-
-def maybe_make_gif(mp4_path: str, gif_path: str, fps: int = 12) -> None:
-    clip = VideoFileClip(mp4_path)
-    os.makedirs(os.path.dirname(gif_path), exist_ok=True)
-    clip.write_gif(gif_path, fps=fps, program="ffmpeg")
-    clip.close()
+    env.close()
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--env-id", type=str, default=None)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--steps", type=int, default=1500, help="Steps per stage")
-    p.add_argument("--mid-model", type=str, default="outputs/models/ppo_mid.zip")
-    p.add_argument("--final-model", type=str, default="outputs/models/ppo_final.zip")
+    p.add_argument("--env-id", type=str, default="highway-v0")
+    p.add_argument("--mid-model", type=str, required=True)
+    p.add_argument("--final-model", type=str, required=True)
+    p.add_argument("--steps", type=int, default=1200)
+    p.add_argument("--fps", type=int, default=30)
+    p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out-dir", type=str, default="outputs/videos")
     p.add_argument("--make-gif", action="store_true")
     return p.parse_args()
@@ -99,45 +106,67 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    cfg = TrainConfig()
-    env_id = args.env_id or cfg.env_id
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    stage_dir = os.path.join(args.out_dir, "stages")
-    os.makedirs(stage_dir, exist_ok=True)
+    mp4_path = out_dir / "evolution.mp4"
+    gif_path = out_dir / "evolution.gif"
 
-    # 1) Untrained (random actions)
-    env = _make_env(env_id, args.seed, stage_dir, "untrained")
-    _rollout_random(env, args.steps)
-    env.close()
-    untrained_mp4 = _pick_latest_mp4(stage_dir, "untrained")
+    # Load models
+    mid_model = PPO.load(args.mid_model, device="cpu")
+    final_model = PPO.load(args.final_model, device="cpu")
 
-    # 2) Mid model
-    if not os.path.exists(args.mid_model):
-        raise FileNotFoundError(f"Mid model not found: {args.mid_model}")
-    mid_model = PPO.load(args.mid_model)
-    env = _make_env(env_id, args.seed, stage_dir, "half_trained")
-    _rollout_model(env, mid_model, args.steps)
-    env.close()
-    mid_mp4 = _pick_latest_mp4(stage_dir, "half_trained")
+    def mid_policy(obs: np.ndarray) -> int:
+        a, _ = mid_model.predict(obs, deterministic=True)
+        return int(a)
 
-    # 3) Final model
-    if not os.path.exists(args.final_model):
-        raise FileNotFoundError(f"Final model not found: {args.final_model}")
-    final_model = PPO.load(args.final_model)
-    env = _make_env(env_id, args.seed, stage_dir, "fully_trained")
-    _rollout_model(env, final_model, args.steps)
-    env.close()
-    final_mp4 = _pick_latest_mp4(stage_dir, "fully_trained")
+    def final_policy(obs: np.ndarray) -> int:
+        a, _ = final_model.predict(obs, deterministic=True)
+        return int(a)
 
-    # Combine
-    combined_mp4 = os.path.join(args.out_dir, "evolution.mp4")
-    _concat_three(untrained_mp4, mid_mp4, final_mp4, combined_mp4)
-    print(f"Saved combined video to: {combined_mp4}")
+    # Write MP4 by streaming frames (no RecordVideo)
+    with imageio.get_writer(str(mp4_path), fps=args.fps) as writer:
+        _rollout_and_write(
+            writer,
+            env_id=args.env_id,
+            stage_name="Stage 1 — Untrained (Random)",
+            steps=args.steps,
+            fps=args.fps,
+            seed=args.seed,
+            policy=None,
+        )
+        _rollout_and_write(
+            writer,
+            env_id=args.env_id,
+            stage_name="Stage 2 — Half-Trained",
+            steps=args.steps,
+            fps=args.fps,
+            seed=args.seed + 1,
+            policy=mid_policy,
+        )
+        _rollout_and_write(
+            writer,
+            env_id=args.env_id,
+            stage_name="Stage 3 — Fully Trained",
+            steps=args.steps,
+            fps=args.fps,
+            seed=args.seed + 2,
+            policy=final_policy,
+        )
+
+    print(f"Wrote: {mp4_path}")
 
     if args.make_gif:
-        gif_path = os.path.join(args.out_dir, "evolution.gif")
-        maybe_make_gif(combined_mp4, gif_path)
-        print(f"Saved GIF to: {gif_path}")
+        # Create GIF from MP4 (downsample for size)
+        reader = imageio.get_reader(str(mp4_path))
+        frames = []
+        step = 2  # take every 2nd frame to reduce size
+        for i, frame in enumerate(reader):
+            if i % step == 0:
+                frames.append(frame)
+        reader.close()
+        imageio.mimsave(str(gif_path), frames, duration=(step / args.fps))
+        print(f"Wrote: {gif_path}")
 
 
 if __name__ == "__main__":

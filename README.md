@@ -1,8 +1,12 @@
+![Evolution](assets/evolution.gif)
+
+![Reward vs Episodes](assets/reward_vs_episodes.png)
+
 RL Highway Agent (PPO) — Speed vs Safety in Dense Traffic
 Header & Visual Proof
 Embedded evolution media (place files in the repo under assets/ and link/embed them in GitHub README):
-• assets/evolution.gif (recommended for automatic display on GitHub)
-• assets/evolution.mp4 (optional)
+• assets/evolution.gif 
+• assets/evolution.mp4 
 Stages shown: Untrained Agent → Half-Trained Agent → Fully Trained Agent
 Objective
 Train a reinforcement learning agent to drive as fast as possible in dense traffic without crashing, using Gymnasium + highway-env and Stable-Baselines3 (PPO).

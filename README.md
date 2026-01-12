@@ -225,7 +225,7 @@ Add your own screenshots here (requested for submission):
 <img width="1860" height="170" alt="image" src="https://github.com/user-attachments/assets/bced6c95-9c48-4698-b6f9-7452bd5d6b40" />
 
 - **Evolution video frames (half vs final):**  
-  _[PLACEHOLDER — add screenshot]_
+<img width="608" height="160" alt="image" src="https://github.com/user-attachments/assets/c99ce975-f791-4fbe-a9f9-d81024470ebb" />
 
 ---
 
@@ -241,5 +241,6 @@ Add your own screenshots here (requested for submission):
 - `highway-env` for the traffic simulation environment
 - Gymnasium for the RL interface
 - Stable-Baselines3 for PPO implementation
+
 
 

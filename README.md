@@ -214,9 +214,7 @@ src/
 
 ---
 
-## Evidence / Screenshots (fill in)
-
-Add your own screenshots here (requested for submission):
+## Evidence / Screenshots 
 
 - **Training completed (terminal output):**  
 <img width="2158" height="1096" alt="image" src="https://github.com/user-attachments/assets/58222197-635e-46a4-bac4-94a813b0b615" />
@@ -230,18 +228,13 @@ Add your own screenshots here (requested for submission):
 
 ---
 
-## Notes / Troubleshooting
-
-- If `imageio` complains about video codecs, try reinstalling it or using a different Python environment.
-- If your system has issues with `SubprocVecEnv` spawning, reduce `n_envs` in `src/config.py`.
-
----
 
 ## Acknowledgements
 
 - `highway-env` for the traffic simulation environment
 - Gymnasium for the RL interface
 - Stable-Baselines3 for PPO implementation
+
 
 
 

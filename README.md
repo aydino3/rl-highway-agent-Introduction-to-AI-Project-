@@ -4,6 +4,16 @@
 
 > MP4 version: [assets/evolution.mp4](assets/evolution.mp4)
 
+---
+## Project Member
+Aydın Özkan - 2103508
+
+Rüya Ödül Sakuçoğlu - 2200445
+
+Emre Topal - 2103501
+
+---
+
 ## Objective
 Train an RL agent to drive as fast as possible in dense traffic 
  (highway-env / highway-v0).
@@ -65,3 +75,4 @@ cp -f outputs/videos/evolution.gif assets/evolution.gif
 python -m src.plots.plot_reward_curve --log-dir outputs/logs --out outputs/plots/reward_vs_episodes.png
 cp -f outputs/plots/reward_vs_episodes.png assets/reward_vs_episodes.png
 ```
+
